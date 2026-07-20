@@ -271,7 +271,15 @@
     <div class="panel">
       <span class="label">Query console</span>
       <div class="microw">
-        <button id="micBtn" title="Push to talk"><span aria-hidden="true">🎙</span><span class="srlabel">Toggle microphone</span></button>
+        <button id="micBtn" title="Push to talk">
+          <svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="2.5" width="6" height="11" rx="3"></rect>
+            <path d="M5.5 11a6.5 6.5 0 0 0 13 0"></path>
+            <line x1="12" y1="17.5" x2="12" y2="21"></line>
+            <line x1="8.5" y1="21" x2="15.5" y2="21"></line>
+          </svg>
+          <span class="srlabel">Toggle microphone</span>
+        </button>
         <div class="micstate" id="micState">Tap the mic and speak a filter,<br>or type one below.</div>
       </div>
       <div class="sayrow">
@@ -1081,7 +1089,7 @@ function startListening() {
   recog.onerror = e => {
     stopListening();
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-      logEntry("app err", "Microphone access was blocked here. If you are viewing the hosted artifact, download the file and open it locally in Chrome for voice input — typing works everywhere.");
+      logEntry("app err", "Microphone access is blocked in this embedded view. For voice input, save jql_builder.html to your computer and open it in Chrome or Edge — everything else works right here by typing.");
     } else if (e.error !== "aborted" && e.error !== "no-speech") {
       logEntry("app err", "Speech error: " + e.error);
     }
