@@ -737,10 +737,17 @@ function evaluate() {
 /* ---------------- natural-language interpreter ---------------- */
 function fuzzyValue(field, token) {
   const vocab = data.vocab[field] || [];
-  const t = token.toLowerCase();
+  const t = token.toLowerCase().trim();
+  if (!t) return null;
   let hit = vocab.find(v => v.toLowerCase() === t);
   if (hit) return hit;
   hit = vocab.find(v => v.toLowerCase().startsWith(t));
+  if (hit) return hit;
+  // spoken word extends the stored key: "solar" → key "SOL"
+  hit = vocab.find(v => v.length >= 3 && t.startsWith(v.toLowerCase()));
+  if (hit) return hit;
+  // spoken word equals one word of a multi-word value: "solar" → "Solar Platform"
+  hit = vocab.find(v => v.toLowerCase().split(/[^a-z0-9]+/).includes(t));
   if (hit) return hit;
   hit = vocab.find(v => v.toLowerCase().includes(t));
   return hit || null;
@@ -921,6 +928,7 @@ function interpretLocal(utterance) {
   }
 
   // --- enum value scanning: project, status, priority, type, labels, sprint, component ---
+  const matchedFields = new Set();
   const enumFields = ["project", "status", "priority", "issuetype", "labels", "sprint", "component"];
   for (const field of enumFields) {
     // explicit "in project X" style requires the field word OR a distinctive vocab hit
@@ -934,7 +942,26 @@ function interpretLocal(utterance) {
     if (field === "status" && negMode) continue;
     pushToField(field, strong, { negated: negMode && !orMerge, orMerge });
     say((negMode ? "excluding " : "") + field + " " + strong.join(", "));
+    matchedFields.add(field);
     matchedSomething = true; changed = true;
+  }
+
+  // --- "… in/from the <name> project" or "project <name>" with fuzzy matching ---
+  if (!matchedFields.has("project")) {
+    let pm = lower.match(/\b(?:in|from|for|of|on|inside)\s+(?:the\s+)?([a-z0-9][a-z0-9 _.-]{0,30}?)\s+project\b/)
+          || lower.match(/\bprojects?\s+(?:named\s+|called\s+)?["']?([a-z0-9][a-z0-9_.-]*)/);
+    if (pm) {
+      const spoken = pm[1].trim();
+      const guess = fuzzyValue("project", spoken) ||
+        spoken.split(/\s+/).map(w => fuzzyValue("project", w)).find(Boolean);
+      if (guess) {
+        pushToField("project", [guess], { negated: negMode && !orMerge, orMerge });
+        say((negMode ? "excluding " : "") + "project " + guess + (guess.toLowerCase() !== spoken ? ' (matched from "' + spoken + '")' : ""));
+        matchedSomething = true; changed = true;
+      } else if (data.vocab.project && data.vocab.project.length) {
+        say('No project matching "' + spoken + '". Projects in your data: ' + data.vocab.project.slice(0, 10).join(", "));
+      }
+    }
   }
 
   // --- text search: quoted or "summary contains X" / "about X" ---
@@ -949,7 +976,17 @@ function interpretLocal(utterance) {
 
   if (!matchedSomething) {
     history.pop(); // nothing changed — drop the snapshot
-    return { messages: ['Could not turn that into a filter. Try naming a project, status, priority, assignee or a due-date phrase — e.g. "only high priority in project SOLA".'], changed: false, unrecognized: true };
+    const hints = [];
+    if (messages.length) hints.push(...messages); // e.g. "no project matching …"
+    else {
+      let h = "Could not turn that into a filter. Try naming a project, status, priority, assignee or a due-date phrase.";
+      if (data.vocab.project && data.vocab.project.length)
+        h += " Projects in your data: " + data.vocab.project.slice(0, 8).join(", ") + ".";
+      hints.push(h);
+    }
+    if (!settings.useLlm || !settings.apiKey)
+      hints.push("Tip: for free-form phrasing, enable Claude interpretation in ⚙ settings (needs an API key; works when this file is opened locally).");
+    return { messages: hints, changed: false, unrecognized: true };
   }
   return { messages, changed };
 
