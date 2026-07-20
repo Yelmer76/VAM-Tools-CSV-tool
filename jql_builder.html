@@ -573,7 +573,7 @@ function condToTokens(c) {
   const OP = t => tk.push({ t, cls: "op" });
   const V = v => { const q = quoteJql(v); tk.push({ t: q.text, cls: "v" }); };
   const FN = t => tk.push({ t, cls: "fn" });
-  const valTok = v => (/^\w+\(.*\)$/.test(v) ? FN(v) : V(v));
+  const valTok = v => (/^\w+\(.*\)$/.test(v) ? FN(v) : (/^".*"$/.test(v) ? tk.push({ t: v, cls: "v" }) : V(v)));
   switch (c.op) {
     case "eq":
       F(c.field);
@@ -735,6 +735,30 @@ function evaluate() {
 }
 
 /* ---------------- natural-language interpreter ---------------- */
+const MONTH_FULL = { january:0, february:1, march:2, april:3, may:4, june:5, july:6, august:7,
+                     september:8, october:9, november:10, december:11 };
+function spokenDateToJql(s) {
+  s = s.trim().toLowerCase().replace(/[.?!]$/, "");
+  let m;
+  if ((m = s.match(/^(\d{4}-\d{2}-\d{2})$/))) return '"' + m[1] + '"';
+  if ((m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/)))  // day-first
+    return '"' + m[3] + "-" + String(+m[2]).padStart(2, "0") + "-" + String(+m[1]).padStart(2, "0") + '"';
+  for (const [name, idx] of Object.entries(MONTH_FULL)) {
+    if (s.includes(name) || s.includes(name.slice(0, 3))) {
+      const ym = s.match(/\b(\d{4})\b/);
+      const y = ym ? +ym[1] : new Date().getFullYear();
+      const dm = s.replace(/\b\d{4}\b/, "").match(/\b(\d{1,2})\b/);
+      const day = dm ? +dm[1] : 1;
+      return '"' + y + "-" + String(idx + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0") + '"';
+    }
+  }
+  if (s === "today") return "startOfDay()";
+  if (s === "tomorrow") return "startOfDay(1d)";
+  if (s === "yesterday") return "startOfDay(-1d)";
+  if (s === "now") return "now()";
+  return null;
+}
+
 function fuzzyValue(field, token) {
   const vocab = data.vocab[field] || [];
   const t = token.toLowerCase().trim();
@@ -816,6 +840,31 @@ function interpretLocal(utterance) {
 
   pushHistory();
 
+  // --- direct JQL clause input:  status = "In Review"   project in (SOL, VMW)   duedate < now() ---
+  const ALIAS = { due: "duedate", "due date": "duedate", type: "issuetype", label: "labels", "fix version": "fixVersion" };
+  let dm = text.trim().match(/^(\w+(?: \w+)?)\s+(not\s+in|in)\s*\(([^)]+)\)\s*$/i);
+  if (dm) {
+    const field = ALIAS[dm[1].toLowerCase()] || dm[1];
+    const values = dm[3].split(",").map(s => s.trim().replace(/^"(.*)"$/, "$1")).filter(Boolean);
+    state.conditions.push(newCond({ field, op: "eq", values, negated: /not/i.test(dm[2]) }));
+    return { messages: ["added " + condToText(state.conditions[state.conditions.length - 1])], changed: true };
+  }
+  dm = text.trim().match(/^(\w+(?: \w+)?)\s*(!=|>=|<=|!~|=|~|>|<)\s*(.+?)\s*$/);
+  if (dm && !/\s(and|or)\s/i.test(text)) {
+    const field = ALIAS[dm[1].toLowerCase()] || dm[1].trim();
+    const op = dm[2];
+    let val = dm[3].trim().replace(/^"(.*)"$/, "$1");
+    let c;
+    if (op === "=" || op === "!=") c = newCond({ field, op: "eq", values: [val], negated: op === "!=" });
+    else if (op === "~" || op === "!~") c = newCond({ field, op: "contains", values: [val] , negated: op === "!~" });
+    else {
+      if (/^(now|today)$/i.test(val)) val = val.toLowerCase() === "now" ? "now()" : "startOfDay()";
+      c = newCond({ field, op: "cmp", cmpOp: op, values: [val] });
+    }
+    state.conditions.push(c);
+    return { messages: ["added " + condToText(c)], changed: true };
+  }
+
   // --- mode detection ---
   const negMode = /^(exclude|hide|without|not )|(^| )except\b/.test(lower) || /\bexclude\b|\bhide\b/.test(lower);
   const orMerge = /^(include|also|add|or )/.test(lower) || /\bas well\b|\btoo$/.test(lower);
@@ -892,8 +941,15 @@ function interpretLocal(utterance) {
   if ((m = lower.match(/\b(created|updated) (?:this|the) week\b/))) {
     addCond({ field: m[1], op: "cmp", cmpOp: ">=", values: ["startOfWeek()"] });
   }
-  if ((m = lower.match(/\bdue (before|after) (\d{4}-\d{2}-\d{2})\b/))) {
-    addCond({ field: "duedate", op: "cmp", cmpOp: m[1] === "before" ? "<" : ">", values: ['"' + m[2] + '"'] });
+  if ((m = lower.match(/\b(due|created|updated)\s+(?:date\s+)?(before|after|since)\s+(.+?)(?:[,.]| and |$)/))) {
+    const jqlDate = spokenDateToJql(m[3]);
+    if (jqlDate) {
+      addCond({
+        field: m[1] === "due" ? "duedate" : m[1], op: "cmp",
+        cmpOp: m[2] === "before" ? "<" : (m[2] === "since" ? ">=" : ">"),
+        values: [jqlDate]
+      });
+    }
   }
 
   // --- people ---
@@ -911,12 +967,14 @@ function interpretLocal(utterance) {
   }
 
   // --- open / done shortcuts ---
+  let doneHandled = false;
   if (/\b(open|unresolved|not done|still open)\b/.test(lower) && !/\bopened\b/.test(lower)) {
     if (!state.conditions.some(c => c.op === "raw" && /statusCategory/.test(c.rawJql || ""))) {
       addCond({ field: "statusCategory", op: "raw", rawJql: "statusCategory != Done" });
     }
   }
   if (/\b(exclude|hide|without|not)\b.*\b(done|closed|resolved|completed)\b/.test(lower) || /^done removed$/.test(lower)) {
+    doneHandled = true;
     const doneVals = (data.vocab.status || []).filter(v => DONE_WORDS.test(v));
     if (doneVals.length) {
       pushToField("status", doneVals, { negated: true, orMerge: true });
@@ -939,7 +997,7 @@ function interpretLocal(utterance) {
     const strong = vals.filter(v => fieldWordPresent || v.length >= 3);
     if (!strong.length) continue;
     // "exclude done" style handled above for status
-    if (field === "status" && negMode) continue;
+    if (field === "status" && negMode && doneHandled) continue;
     pushToField(field, strong, { negated: negMode && !orMerge, orMerge });
     say((negMode ? "excluding " : "") + field + " " + strong.join(", "));
     matchedFields.add(field);
@@ -978,14 +1036,20 @@ function interpretLocal(utterance) {
     history.pop(); // nothing changed — drop the snapshot
     const hints = [];
     if (messages.length) hints.push(...messages); // e.g. "no project matching …"
-    else {
-      let h = "Could not turn that into a filter. Try naming a project, status, priority, assignee or a due-date phrase.";
-      if (data.vocab.project && data.vocab.project.length)
-        h += " Projects in your data: " + data.vocab.project.slice(0, 8).join(", ") + ".";
-      hints.push(h);
+    else if (!data.rows.length) {
+      hints.push("No data loaded yet — upload a Jira CSV (or the sample queue) first, so I know your projects, statuses and people.");
+    } else {
+      const mapped = Object.keys(data.vocab).filter(f => data.vocab[f].length);
+      if (!mapped.length) {
+        hints.push("None of your CSV columns were recognized, so there is nothing to match phrases against. Headers found: " +
+          data.headers.slice(0, 12).join(" · ") +
+          ". Expected names like: Project key, Status, Priority, Assignee, Due date, Issue Type, Labels.");
+      } else {
+        hints.push("Could not turn that into a filter. I can match these values from your data → " +
+          mapped.slice(0, 5).map(f => f + ": " + data.vocab[f].slice(0, 5).join(", ")).join("  ·  "));
+        hints.push('You can also type a JQL clause directly, e.g. status = "' + ((data.vocab.status || [])[0] || "Open") + '" or project in (A, B)');
+      }
     }
-    if (!settings.useLlm || !settings.apiKey)
-      hints.push("Tip: for free-form phrasing, enable Claude interpretation in ⚙ settings (needs an API key; works when this file is opened locally).");
     return { messages: hints, changed: false, unrecognized: true };
   }
   return { messages, changed };
@@ -1249,6 +1313,28 @@ function renderPreview() {
   }
 }
 
+function renderExamples() {
+  const list = [];
+  const p = (data.vocab.project || [])[0];
+  const pr = (data.vocab.priority || [])[0];
+  const st = (data.vocab.status || [])[0];
+  const as = (data.vocab.assignee || [])[0];
+  list.push(p ? "all issues in project " + p : "all issues in project SOLA");
+  list.push("include everything that is past due date");
+  list.push(pr ? "only " + pr.toLowerCase() + " priority" : "only high priority bugs");
+  list.push(st ? "exclude status " + st : "exclude everything that is done");
+  list.push(as ? "assigned to " + as : "assigned to me, sorted by due date");
+  if (st) list.push('status = "' + st + '"');
+  list.push("sorted by due date");
+  list.push("remove the priority filter");
+  ui.examples.innerHTML = '<span class="label">Try typing</span>';
+  for (const t of list) {
+    const b = document.createElement("button");
+    b.className = "ex"; b.textContent = t;
+    ui.examples.appendChild(b);
+  }
+}
+
 function renderFiles() {
   ui.fileTags.textContent = "";
   for (const f of data.files) {
@@ -1261,7 +1347,8 @@ function renderFiles() {
   const fields = Object.keys(data.fieldCols);
   ui.fieldStrip.innerHTML = fields.length
     ? "detected fields: " + fields.map(f => "<code>" + f + "</code>").join(" · ")
-    : "";
+    : (data.headers.length ? "⚠ no known Jira columns recognized — headers found: " + data.headers.slice(0, 10).map(escapeHtml).join(" · ") : "");
+  renderExamples();
 }
 function escapeHtml(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
 
@@ -1412,5 +1499,6 @@ ui.settingsSave.onclick = () => {
   logEntry("app", settings.useLlm && settings.apiKey ? "Claude interpretation enabled" : "using built-in parser");
 };
 
+renderExamples();
 refresh();
 </script>
