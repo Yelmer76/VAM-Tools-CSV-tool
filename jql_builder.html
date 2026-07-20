@@ -1,0 +1,1371 @@
+<title>VAM · Smart JQL Builder</title>
+<style>
+  /* ---------- design tokens ---------- */
+  :root {
+    --bg: #F4F6F9;
+    --panel: #FFFFFF;
+    --panel-2: #EDF0F4;
+    --ink: #1A1D24;
+    --muted: #5A6372;
+    --line: #D8DDE4;
+    --accent: #0E7C74;        /* teal — fields, primary actions */
+    --accent-soft: #0E7C7418;
+    --value: #9A6215;         /* amber — quoted values */
+    --keyword: #6A5ACD;       /* slate violet — AND/OR/ORDER BY */
+    --func: #8A4FA8;          /* JQL functions now(), currentUser() */
+    --live: #E5484D;          /* mic recording — semantic, not accent */
+    --good: #2F7A3D;
+    --chip: #E7ECF1;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+    --ui: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(20,25,35,.06), 0 4px 16px rgba(20,25,35,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171C; --panel: #1D2026; --panel-2: #23262E;
+      --ink: #E8EAF0; --muted: #98A1B0; --line: #30343D;
+      --accent: #3DBFB2; --accent-soft: #3DBFB222;
+      --value: #E0B45C; --keyword: #A99AE8; --func: #C08BDD;
+      --good: #58B368; --chip: #2A2E37;
+      --shadow: 0 1px 2px rgba(0,0,0,.35), 0 6px 20px rgba(0,0,0,.25);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #F4F6F9; --panel: #FFFFFF; --panel-2: #EDF0F4;
+    --ink: #1A1D24; --muted: #5A6372; --line: #D8DDE4;
+    --accent: #0E7C74; --accent-soft: #0E7C7418;
+    --value: #9A6215; --keyword: #6A5ACD; --func: #8A4FA8;
+    --good: #2F7A3D; --chip: #E7ECF1;
+    --shadow: 0 1px 2px rgba(20,25,35,.06), 0 4px 16px rgba(20,25,35,.05);
+  }
+  :root[data-theme="dark"] {
+    --bg: #15171C; --panel: #1D2026; --panel-2: #23262E;
+    --ink: #E8EAF0; --muted: #98A1B0; --line: #30343D;
+    --accent: #3DBFB2; --accent-soft: #3DBFB222;
+    --value: #E0B45C; --keyword: #A99AE8; --func: #C08BDD;
+    --good: #58B368; --chip: #2A2E37;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 6px 20px rgba(0,0,0,.25);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.5 var(--ui);
+  }
+  button { font: inherit; cursor: pointer; }
+  input, select { font: inherit; color: inherit; }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 20px 20px 60px; }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    padding: 6px 2px 16px;
+  }
+  .mark {
+    font-family: var(--mono); font-size: 17px; font-weight: 700;
+    letter-spacing: .06em;
+  }
+  .mark .accent { color: var(--accent); }
+  .tagline { color: var(--muted); font-size: 12.5px; }
+  header .spacer { flex: 1; }
+  .iconbtn {
+    background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 8px; padding: 5px 10px; font-size: 12.5px;
+  }
+  .iconbtn:hover { color: var(--ink); border-color: var(--muted); }
+
+  .label {
+    font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+    letter-spacing: .09em; text-transform: uppercase; color: var(--muted);
+  }
+
+  /* ---------- upload strip ---------- */
+  .upload {
+    border: 1.5px dashed var(--line); border-radius: var(--radius);
+    background: var(--panel); padding: 14px 18px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    transition: border-color .15s, background .15s;
+  }
+  .upload.drag { border-color: var(--accent); background: var(--accent-soft); }
+  .upload .hint { color: var(--muted); font-size: 13px; }
+  .btn {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 7px 14px; font-weight: 600; font-size: 13px;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .btn.ghost {
+    background: transparent; color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .btn.subtle {
+    background: var(--panel-2); color: var(--ink); border: 1px solid var(--line);
+    font-weight: 500;
+  }
+  .filetag {
+    font-family: var(--mono); font-size: 12px; background: var(--chip);
+    border-radius: 6px; padding: 3px 9px; display: inline-flex; gap: 7px; align-items: center;
+  }
+  .filetag b { color: var(--accent); font-weight: 600; }
+  .fieldstrip { margin-top: 8px; color: var(--muted); font-size: 12px; }
+  .fieldstrip code { font-family: var(--mono); color: var(--ink); font-size: 11.5px; }
+
+  /* ---------- JQL hero card ---------- */
+  .jqlcard {
+    margin-top: 16px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 18px;
+  }
+  .jqlcard .top { display: flex; align-items: center; gap: 10px; }
+  .jqlcard .top .spacer { flex: 1; }
+  #jqlText {
+    font-family: var(--mono); font-size: 17px; line-height: 1.65;
+    padding: 12px 2px 4px; min-height: 40px; word-break: break-word;
+    user-select: all; cursor: text;
+  }
+  #jqlText .f  { color: var(--accent); font-weight: 600; }
+  #jqlText .op { color: var(--muted); }
+  #jqlText .v  { color: var(--value); }
+  #jqlText .kw { color: var(--keyword); font-weight: 600; }
+  #jqlText .fn { color: var(--func); font-style: italic; }
+  #jqlText .empty { color: var(--muted); font-style: italic; font-size: 14px; }
+  .copied { color: var(--good); font-size: 12.5px; opacity: 0; transition: opacity .2s; }
+  .copied.show { opacity: 1; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    background: var(--chip); border-radius: 999px; padding: 3px 6px 3px 11px;
+    font-family: var(--mono); font-size: 12px;
+  }
+  .chip .x {
+    background: none; border: none; color: var(--muted); font-size: 13px;
+    padding: 0 5px; border-radius: 999px; line-height: 1.4;
+  }
+  .chip .x:hover { color: var(--live); }
+
+  /* ---------- main deck ---------- */
+  .deck { display: grid; grid-template-columns: 360px 1fr; gap: 16px; margin-top: 16px; }
+  @media (max-width: 900px) { .deck { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px;
+  }
+
+  /* console */
+  .microw { display: flex; align-items: center; gap: 14px; margin: 10px 0 12px; }
+  #micBtn {
+    width: 62px; height: 62px; border-radius: 50%; border: 2px solid var(--line);
+    background: var(--panel-2); color: var(--ink); font-size: 24px;
+    display: grid; place-items: center; position: relative; flex: none;
+  }
+  #micBtn:hover { border-color: var(--accent); }
+  #micBtn.live { border-color: var(--live); color: var(--live); background: transparent; }
+  #micBtn.live::after {
+    content: ""; position: absolute; inset: -2px; border-radius: 50%;
+    border: 2px solid var(--live); animation: pulse 1.4s ease-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) { #micBtn.live::after { animation: none; } }
+  @keyframes pulse {
+    0% { transform: scale(1); opacity: .9; }
+    100% { transform: scale(1.45); opacity: 0; }
+  }
+  .micstate { font-size: 12.5px; color: var(--muted); }
+  .micstate b { color: var(--live); }
+
+  .sayrow { display: flex; gap: 8px; }
+  #sayInput {
+    flex: 1; background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 11px; color: var(--ink); min-width: 0;
+  }
+  #sayInput:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+  .log { margin-top: 14px; max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+  .log .entry { font-size: 13px; }
+  .log .you { font-weight: 600; }
+  .log .you::before { content: "you  "; font-family: var(--mono); font-size: 10.5px; color: var(--muted); letter-spacing: .08em; }
+  .log .app { color: var(--muted); padding-left: 2px; }
+  .log .app::before { content: "→ "; color: var(--accent); }
+  .log .err { color: var(--live); }
+
+  .examples { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .examples .ex {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    color: var(--muted); font-size: 12.5px; padding: 3px 0; font-style: italic;
+  }
+  .examples .ex:hover { color: var(--accent); }
+
+  /* preview */
+  .prevhead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .count { font-family: var(--mono); font-size: 13px; }
+  .count b { color: var(--good); font-size: 16px; }
+  .notice { font-size: 12px; color: var(--muted); font-style: italic; }
+  .tablewrap { overflow-x: auto; margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th {
+    text-align: left; font-family: var(--mono); font-size: 10.5px; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--muted); font-weight: 600;
+    padding: 7px 10px; border-bottom: 1px solid var(--line); background: var(--panel-2);
+    white-space: nowrap; position: sticky; top: 0;
+  }
+  td { padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.mono { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+  td.due-past { color: var(--live); font-weight: 600; }
+  .placeholder { color: var(--muted); padding: 26px 10px; text-align: center; font-size: 13px; }
+
+  /* ---------- settings dialog ---------- */
+  dialog {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px 22px;
+    max-width: 460px; width: calc(100vw - 48px);
+  }
+  dialog::backdrop { background: rgba(10,12,16,.5); }
+  dialog h3 { margin: 0 0 4px; font-size: 15px; }
+  dialog .row { margin-top: 12px; }
+  dialog input[type="password"], dialog input[type="text"], dialog select {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 11px; color: var(--ink);
+  }
+  dialog .note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  dialog .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+  .switchrow { display: flex; align-items: center; gap: 9px; margin-top: 12px; }
+
+  .srlabel { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="mark">VAM<span class="accent">·</span>JQL<span class="accent">▸</span>BUILDER</div>
+    <div class="tagline">talk your filter into existence — copy correct JQL out</div>
+    <div class="spacer"></div>
+    <button class="iconbtn" id="settingsBtn">⚙ settings</button>
+  </header>
+
+  <!-- upload -->
+  <div class="upload" id="dropZone">
+    <button class="btn" id="browseBtn">Upload Jira CSV</button>
+    <button class="btn ghost" id="sampleBtn">Load sample queue</button>
+    <span class="hint">Drop one or more Jira issue exports here. Their projects, statuses and people become the vocabulary for your queries.</span>
+    <span id="fileTags"></span>
+    <input type="file" id="fileInput" accept=".csv,.tsv,text/csv" multiple style="display:none">
+  </div>
+  <div class="fieldstrip" id="fieldStrip"></div>
+
+  <!-- JQL hero -->
+  <div class="jqlcard">
+    <div class="top">
+      <span class="label">JQL filter</span>
+      <span class="copied" id="copiedMsg">copied to clipboard</span>
+      <span class="spacer"></span>
+      <button class="btn subtle" id="undoBtn" title="Undo last change">↩ Undo</button>
+      <button class="btn subtle" id="clearBtn" title="Clear the query">✕ Clear</button>
+      <button class="btn" id="copyBtn">⧉ Copy JQL</button>
+    </div>
+    <div id="jqlText" title="Click to select"></div>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <!-- deck -->
+  <div class="deck">
+    <div class="panel">
+      <span class="label">Query console</span>
+      <div class="microw">
+        <button id="micBtn" title="Push to talk"><span aria-hidden="true">🎙</span><span class="srlabel">Toggle microphone</span></button>
+        <div class="micstate" id="micState">Tap the mic and speak a filter,<br>or type one below.</div>
+      </div>
+      <div class="sayrow">
+        <input id="sayInput" placeholder='e.g. all issues in project SOLA' autocomplete="off">
+        <button class="btn" id="sayBtn">Apply</button>
+      </div>
+      <div class="log" id="log"></div>
+      <div class="examples" id="examples">
+        <span class="label">Try saying</span>
+        <button class="ex">all issues in project SOLA</button>
+        <button class="ex">include everything that is past due date</button>
+        <button class="ex">only high priority bugs</button>
+        <button class="ex">exclude everything that is done</button>
+        <button class="ex">assigned to me, sorted by due date</button>
+        <button class="ex">remove the priority filter</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="prevhead">
+        <span class="label">Live preview</span>
+        <span class="count" id="countBox"></span>
+        <span class="notice" id="evalNotice"></span>
+      </div>
+      <div class="tablewrap" id="tableWrap">
+        <div class="placeholder">Upload a Jira CSV (or load the sample queue) to preview which issues your filter matches.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- settings -->
+<dialog id="settingsDlg">
+  <h3>Settings</h3>
+  <div class="row">
+    <span class="label">Claude API key (optional)</span>
+    <input type="password" id="apiKeyInput" placeholder="sk-ant-…" autocomplete="off">
+    <div class="note">
+      With a key, tricky sentences are interpreted by Claude (model
+      <code>claude-opus-4-8</code>) instead of the built-in parser. Direct browser
+      calls to the Claude API work when you open this file locally; inside the hosted
+      artifact they are blocked by its sandbox, and the built-in parser is used.
+      The key is stored only in this browser (localStorage).
+    </div>
+  </div>
+  <div class="switchrow">
+    <input type="checkbox" id="useLlm">
+    <label for="useLlm">Use Claude to interpret commands</label>
+  </div>
+  <div class="row">
+    <span class="label">Speech language</span>
+    <select id="langSel">
+      <option value="">Auto (browser language)</option>
+      <option value="en-US">English</option>
+      <option value="nb-NO">Norsk</option>
+      <option value="nl-NL">Nederlands</option>
+      <option value="de-DE">Deutsch</option>
+    </select>
+  </div>
+  <div class="actions">
+    <button class="btn subtle" id="settingsClose">Close</button>
+    <button class="btn" id="settingsSave">Save</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+/* =====================================================================
+   VAM Smart JQL Builder
+   Single-file voice/text → JQL filter builder over uploaded Jira CSVs.
+   Sections: csv parsing · schema mapping · query state · JQL rendering ·
+   evaluation/preview · natural-language interpreter · Claude API mode ·
+   speech input · UI wiring
+   ===================================================================== */
+
+/* ---------------- CSV parsing ---------------- */
+function detectDelimiter(text) {
+  const firstLine = (text.match(/^[^\r\n]*/) || [""])[0];
+  let best = ",", bestCount = -1;
+  for (const d of [",", ";", "\t"]) {
+    let count = 0, inQ = false;
+    for (const ch of firstLine) {
+      if (ch === '"') inQ = !inQ;
+      else if (ch === d && !inQ) count++;
+    }
+    if (count > bestCount) { best = d; bestCount = count; }
+  }
+  return best;
+}
+
+function parseCsv(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const delim = detectDelimiter(text);
+  const rows = [];
+  let row = [], cell = "", inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { cell += '"'; i++; }
+        else inQ = false;
+      } else cell += ch;
+    } else if (ch === '"') {
+      inQ = true;
+    } else if (ch === delim) {
+      row.push(cell); cell = "";
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell); cell = "";
+      if (row.length > 1 || row[0] !== "") rows.push(row);
+      row = [];
+    } else cell += ch;
+  }
+  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+/* ---------------- schema mapping ---------------- */
+const FIELD_DEFS = [
+  { jql: "key",        type: "text",   match: /^(issue ?key|key)$/i },
+  { jql: "summary",    type: "text",   match: /^summary$/i },
+  { jql: "project",    type: "enum",   match: /^(project|project key|project name)$/i },
+  { jql: "issuetype",  type: "enum",   match: /^issue ?type$/i },
+  { jql: "status",     type: "enum",   match: /^status$/i },
+  { jql: "priority",   type: "enum",   match: /^priority$/i },
+  { jql: "resolution", type: "enum",   match: /^resolution$/i },
+  { jql: "assignee",   type: "enum",   match: /^assignee$/i },
+  { jql: "reporter",   type: "enum",   match: /^reporter$/i },
+  { jql: "labels",     type: "multi",  match: /^labels?$/i },
+  { jql: "component",  type: "multi",  match: /^components?(\/s)?$/i },
+  { jql: "fixVersion", type: "multi",  match: /^fix ?versions?(\/s)?$/i },
+  { jql: "sprint",     type: "enum",   match: /^sprint$/i },
+  { jql: "duedate",    type: "date",   match: /^(due ?date|due)$/i },
+  { jql: "created",    type: "date",   match: /^created$/i },
+  { jql: "updated",    type: "date",   match: /^updated$/i },
+  { jql: "resolved",   type: "date",   match: /^resolved$/i },
+];
+const FIELD_LABEL = {
+  key: "Key", summary: "Summary", project: "Project", issuetype: "Type",
+  status: "Status", priority: "Priority", resolution: "Resolution",
+  assignee: "Assignee", reporter: "Reporter", labels: "Labels",
+  component: "Component", fixVersion: "Fix version", sprint: "Sprint",
+  duedate: "Due", created: "Created", updated: "Updated", resolved: "Resolved",
+};
+const DONE_WORDS = /^(done|closed|resolved|complete|completed|cancelled|canceled|klaar|gereed|afgerond|ferdig|lukket)$/i;
+
+const MONTHS = { jan:0, feb:1, mar:2, apr:3, may:4, jun:5, jul:6, aug:7, sep:8, oct:9, nov:10, dec:11,
+                 mrt:2, mei:4, okt:9, des:11, dez:11 };
+
+function parseDateCell(s) {
+  if (!s) return null;
+  s = String(s).trim();
+  if (!s) return null;
+  let m;
+  // ISO 2025-07-01 or 2025-07-01 14:30 / T14:30
+  if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/)))
+    return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)).getTime();
+  // Jira export: 20/Jun/25 3:04 PM  |  1/Jul/2025
+  if ((m = s.match(/^(\d{1,2})[\/ -]([A-Za-z]{3})[\/ -](\d{2,4})(?:[ ,]+(\d{1,2}):(\d{2})\s*([AP]M)?)?/i))) {
+    const mon = MONTHS[m[2].toLowerCase()];
+    if (mon !== undefined) {
+      let y = +m[3]; if (y < 100) y += 2000;
+      let h = +(m[4] || 0);
+      if (m[6]) { const pm = /p/i.test(m[6]); if (pm && h < 12) h += 12; if (!pm && h === 12) h = 0; }
+      return new Date(y, mon, +m[1], h, +(m[5] || 0)).getTime();
+    }
+  }
+  // numeric d/m/y or m/d/y (assume day-first when ambiguous — European exports)
+  if ((m = s.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})(?:[ T](\d{1,2}):(\d{2}))?/))) {
+    let a = +m[1], b = +m[2], y = +m[3]; if (y < 100) y += 2000;
+    let d, mo;
+    if (a > 12) { d = a; mo = b; } else if (b > 12) { d = b; mo = a; } else { d = a; mo = b; }
+    return new Date(y, mo - 1, d, +(m[4] || 0), +(m[5] || 0)).getTime();
+  }
+  const t = Date.parse(s);
+  return isNaN(t) ? null : t;
+}
+
+/* ---------------- dataset ---------------- */
+const data = {
+  files: [],          // {name, rowCount}
+  headers: [],        // union headers (display)
+  rows: [],           // string[][] aligned to headers
+  fieldCols: {},      // jqlField -> [colIndex,...]
+  fieldType: {},      // jqlField -> type
+  vocab: {},          // jqlField -> [values sorted by frequency]
+};
+
+function ingestFile(name, text) {
+  const parsed = parseCsv(text);
+  if (!parsed.length) return;
+  const headers = parsed[0].map(h => h.trim());
+  const rows = parsed.slice(1).filter(r => r.some(c => c && c.trim() !== ""));
+  // union headers by (name, occurrence#) so repeated Jira columns survive
+  const seen = {};
+  const targetIdx = headers.map(h => {
+    const k = h.toLowerCase();
+    seen[k] = (seen[k] || 0) + 1;
+    const key = k + " " + seen[k];
+    let idx = data.headers.findIndex((uh, i) => uh.toLowerCase() === k && data._occ[i] === seen[k]);
+    if (idx === -1) { data.headers.push(h); data._occ.push(seen[k]); idx = data.headers.length - 1; }
+    return idx;
+  });
+  const srcIdx = ensureSourceCol();
+  for (const r of rows) {
+    const out = new Array(data.headers.length).fill("");
+    r.forEach((cell, i) => { if (targetIdx[i] !== undefined) out[targetIdx[i]] = (cell || "").trim(); });
+    out[srcIdx] = name;
+    data.rows.push(out);
+  }
+  // pad older rows
+  for (const r of data.rows) while (r.length < data.headers.length) r.push("");
+  data.files.push({ name, rowCount: rows.length });
+  rebuildSchema();
+}
+
+function ensureSourceCol() {
+  let i = data.headers.findIndex(h => h === "Source file");
+  if (i === -1) { data.headers.push("Source file"); data._occ.push(1); i = data.headers.length - 1; }
+  return i;
+}
+data._occ = [];
+
+function rebuildSchema() {
+  data.fieldCols = {}; data.fieldType = {}; data.vocab = {};
+  data.headers.forEach((h, i) => {
+    for (const def of FIELD_DEFS) {
+      if (def.match.test(h)) {
+        (data.fieldCols[def.jql] = data.fieldCols[def.jql] || []).push(i);
+        data.fieldType[def.jql] = def.type;
+        break;
+      }
+    }
+  });
+  for (const [field, cols] of Object.entries(data.fieldCols)) {
+    const type = data.fieldType[field];
+    if (type !== "enum" && type !== "multi") continue;
+    const counts = new Map();
+    for (const row of data.rows) {
+      for (const c of cols) {
+        const cell = row[c]; if (!cell) continue;
+        const vals = type === "multi" ? cell.split(/[\s,;]+/) : [cell];
+        for (const v of vals) { const t = v.trim(); if (t) counts.set(t, (counts.get(t) || 0) + 1); }
+      }
+    }
+    data.vocab[field] = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0]).slice(0, 500);
+  }
+}
+
+function rowFieldValues(row, field) {
+  const cols = data.fieldCols[field] || [];
+  const type = data.fieldType[field];
+  const out = [];
+  for (const c of cols) {
+    const cell = row[c]; if (!cell) continue;
+    if (type === "multi") out.push(...cell.split(/[\s,;]+/).map(s => s.trim()).filter(Boolean));
+    else out.push(cell);
+  }
+  return out;
+}
+function rowFieldDate(row, field) {
+  for (const c of (data.fieldCols[field] || [])) {
+    const t = parseDateCell(row[c]);
+    if (t !== null) return t;
+  }
+  return null;
+}
+
+/* ---------------- query state ---------------- */
+let state = { conditions: [], orderBy: [] };
+const history = [];
+let condSeq = 0;
+
+function pushHistory() { history.push(JSON.parse(JSON.stringify(state))); if (history.length > 60) history.shift(); }
+function undo() {
+  if (!history.length) return false;
+  state = history.pop();
+  return true;
+}
+function newCond(c) { return Object.assign({ id: ++condSeq, negated: false, values: [] }, c); }
+
+/* ---------------- JQL rendering ---------------- */
+const JQL_RESERVED = new Set(["and","or","not","empty","null","order","by","in","is","was","from","to","on","during","changed","before","after","cf"]);
+function quoteJql(v) {
+  if (/^[A-Za-z0-9_.-]+$/.test(v) && !JQL_RESERVED.has(v.toLowerCase())) return { text: v, quoted: false };
+  return { text: '"' + v.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"', quoted: true };
+}
+function condToTokens(c) {
+  const tk = [];
+  const F = t => tk.push({ t, cls: "f" });
+  const OP = t => tk.push({ t, cls: "op" });
+  const V = v => { const q = quoteJql(v); tk.push({ t: q.text, cls: "v" }); };
+  const FN = t => tk.push({ t, cls: "fn" });
+  const valTok = v => (/^\w+\(.*\)$/.test(v) ? FN(v) : V(v));
+  switch (c.op) {
+    case "eq":
+      F(c.field);
+      if (c.values.length > 1) {
+        OP(c.negated ? " NOT IN " : " IN "); OP("(");
+        c.values.forEach((v, i) => { if (i) OP(", "); V(v); });
+        OP(")");
+      } else { OP(c.negated ? " != " : " = "); valTok(c.values[0] ?? ""); }
+      break;
+    case "contains":
+      F(c.field); OP(c.negated ? " !~ " : " ~ ");
+      tk.push({ t: '"' + (c.values[0] || "").replace(/"/g, '\\"') + '"', cls: "v" });
+      break;
+    case "cmp":
+      F(c.field); OP(" " + c.cmpOp + " "); valTok(c.values[0] || "");
+      break;
+    case "empty":
+      F(c.field); OP(" IS "); if (c.negated) OP("NOT "); tk.push({ t: "EMPTY", cls: "kw" });
+      break;
+    case "raw": {
+      const raw = c.rawJql || "";
+      // best-effort highlight of a raw clause
+      const m = raw.match(/^(\w+)\s*(!=|=|!~|~|>=|<=|>|<)\s*(.+)$/);
+      if (m) { F(m[1]); OP(" " + m[2] + " "); (/^\w+\(.*\)$/.test(m[3]) ? FN(m[3]) : tk.push({ t: m[3], cls: "v" })); }
+      else tk.push({ t: raw, cls: "op" });
+      break;
+    }
+  }
+  return tk;
+}
+function stateToTokens() {
+  const tk = [];
+  state.conditions.forEach((c, i) => {
+    if (i) tk.push({ t: " AND ", cls: "kw" });
+    tk.push(...condToTokens(c));
+  });
+  if (state.orderBy.length) {
+    if (tk.length) tk.push({ t: " ", cls: "op" });
+    tk.push({ t: "ORDER BY ", cls: "kw" });
+    state.orderBy.forEach((o, i) => {
+      if (i) tk.push({ t: ", ", cls: "op" });
+      tk.push({ t: o.field, cls: "f" }, { t: " " + o.dir, cls: "kw" });
+    });
+  }
+  return tk;
+}
+function jqlString() { return stateToTokens().map(t => t.t).join(""); }
+function condToText(c) { return condToTokens(c).map(t => t.t).join(""); }
+
+/* ---------------- evaluation / preview ---------------- */
+function resolveDateExpr(expr) {
+  // returns ms timestamp or null (unevaluable)
+  const now = Date.now();
+  const sod = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x.getTime(); };
+  let m;
+  if (expr === "now()") return now;
+  if ((m = expr.match(/^(-?\d+)([dwhM])$/))) {
+    const n = +m[1];
+    const unit = { d: 864e5, w: 6048e5, h: 36e5, M: 2592e6 }[m[2]];
+    return now + n * unit;
+  }
+  if ((m = expr.match(/^startOfDay\((-?\d+)?d?\)$/))) return sod(now) + (m[1] ? +m[1] * 864e5 : 0);
+  if ((m = expr.match(/^endOfDay\((-?\d+)?d?\)$/))) return sod(now) + 864e5 - 1 + (m[1] ? +m[1] * 864e5 : 0);
+  if ((m = expr.match(/^startOfWeek\((-?\d+)?w?\)$/))) {
+    const d = new Date(); const day = (d.getDay() + 6) % 7; // Monday start
+    return sod(now) - day * 864e5 + (m[1] ? +m[1] * 6048e5 : 0);
+  }
+  if ((m = expr.match(/^endOfWeek\((-?\d+)?w?\)$/))) {
+    const d = new Date(); const day = (d.getDay() + 6) % 7;
+    return sod(now) - day * 864e5 + 7 * 864e5 - 1 + (m[1] ? +m[1] * 6048e5 : 0);
+  }
+  if ((m = expr.match(/^startOfMonth\(\)$/))) { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); }
+  if ((m = expr.match(/^endOfMonth\(\)$/))) { const d = new Date(); return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59).getTime(); }
+  if ((m = expr.match(/^"?(\d{4}-\d{2}-\d{2})"?$/))) return parseDateCell(m[1]);
+  return null;
+}
+
+function statusCategoryOf(row) {
+  const st = rowFieldValues(row, "status");
+  const res = rowFieldValues(row, "resolution");
+  if (res.length && !/unresolved/i.test(res[0])) return "Done";
+  return st.some(s => DONE_WORDS.test(s)) ? "Done" : "Open";
+}
+
+function evalCondition(c, row) {
+  // returns true/false, or null if this condition can't be evaluated locally
+  const ci = (a, b) => a.toLowerCase() === b.toLowerCase();
+  switch (c.op) {
+    case "eq": {
+      if (c.values.some(v => /currentUser\(\)/i.test(v))) return null;
+      const vals = rowFieldValues(row, c.field);
+      const hit = c.values.some(qv => vals.some(rv => ci(rv, qv)));
+      return c.negated ? !hit : hit;
+    }
+    case "contains": {
+      const fields = c.field === "text" ? ["summary", "key"] : [c.field];
+      const needle = (c.values[0] || "").toLowerCase();
+      const hit = fields.some(f => rowFieldValues(row, f).some(rv => rv.toLowerCase().includes(needle)));
+      return c.negated ? !hit : hit;
+    }
+    case "cmp": {
+      const target = resolveDateExpr(c.values[0] || "");
+      if (target === null) return null;
+      const t = rowFieldDate(row, c.field);
+      if (t === null) return false;
+      switch (c.cmpOp) {
+        case "<": return t < target;
+        case "<=": return t <= target;
+        case ">": return t > target;
+        case ">=": return t >= target;
+        default: return null;
+      }
+    }
+    case "empty": {
+      const vals = rowFieldValues(row, c.field);
+      const empty = vals.length === 0;
+      return c.negated ? !empty : empty;
+    }
+    case "raw": {
+      const raw = (c.rawJql || "").trim();
+      let m;
+      if ((m = raw.match(/^statusCategory\s*(=|!=)\s*"?Done"?$/i))) {
+        const isDone = statusCategoryOf(row) === "Done";
+        return m[1] === "=" ? isDone : !isDone;
+      }
+      if (/currentUser\(\)/.test(raw)) return null;
+      return null;
+    }
+  }
+  return null;
+}
+
+function evaluate() {
+  const skipped = [];
+  const applicable = state.conditions.filter(c => {
+    if (!data.rows.length) return false;
+    const probe = evalCondition(c, data.rows[0]);
+    if (probe === null && evalCondition(c, data.rows[Math.min(1, data.rows.length - 1)]) === null) {
+      skipped.push(condToText(c));
+      return false;
+    }
+    return true;
+  });
+  let rows = data.rows.filter(r => applicable.every(c => evalCondition(c, r) === true));
+  if (state.orderBy.length) {
+    const os = state.orderBy;
+    rows = rows.slice().sort((a, b) => {
+      for (const o of os) {
+        let av, bv;
+        if (data.fieldType[o.field] === "date") { av = rowFieldDate(a, o.field) ?? Infinity; bv = rowFieldDate(b, o.field) ?? Infinity; }
+        else { av = (rowFieldValues(a, o.field)[0] || "").toLowerCase(); bv = (rowFieldValues(b, o.field)[0] || "").toLowerCase(); }
+        if (av < bv) return o.dir === "ASC" ? -1 : 1;
+        if (av > bv) return o.dir === "ASC" ? 1 : -1;
+      }
+      return 0;
+    });
+  }
+  return { rows, skipped };
+}
+
+/* ---------------- natural-language interpreter ---------------- */
+function fuzzyValue(field, token) {
+  const vocab = data.vocab[field] || [];
+  const t = token.toLowerCase();
+  let hit = vocab.find(v => v.toLowerCase() === t);
+  if (hit) return hit;
+  hit = vocab.find(v => v.toLowerCase().startsWith(t));
+  if (hit) return hit;
+  hit = vocab.find(v => v.toLowerCase().includes(t));
+  return hit || null;
+}
+
+// find vocab values mentioned anywhere in the utterance (longest first, plural-tolerant)
+function scanVocab(field, text) {
+  const vocab = (data.vocab[field] || []).slice().sort((a, b) => b.length - a.length);
+  const found = [];
+  let rest = " " + text.toLowerCase() + " ";
+  for (const v of vocab) {
+    const base = v.toLowerCase();
+    const needles = [base, base + "s", base + "es"];
+    if (base.endsWith("y")) needles.push(base.slice(0, -1) + "ies");
+    for (const needle of needles) {
+      const idx = rest.indexOf(needle);
+      if (idx === -1) continue;
+      const before = rest[idx - 1], after = rest[idx + needle.length];
+      if (/[a-z0-9]/.test(before || "") || /[a-z0-9]/.test(after || "")) continue; // word boundary
+      found.push(v);
+      rest = rest.slice(0, idx) + " ".repeat(needle.length) + rest.slice(idx + needle.length);
+      break;
+    }
+  }
+  return found;
+}
+
+function upsertEq(field, values, { negated = false, orMerge = false } = {}) {
+  const existing = state.conditions.find(c => c.field === field && c.op === "eq" && c.negated === negated);
+  if (existing && orMerge) {
+    for (const v of values) if (!existing.values.some(x => x.toLowerCase() === v.toLowerCase())) existing.values.push(v);
+    return existing;
+  }
+  if (existing) { existing.values = values; return existing; }
+  const c = newCond({ field, op: "eq", values, negated });
+  state.conditions.push(c);
+  return c;
+}
+
+function describeCond(c) { return condToText(c); }
+
+const FIELD_WORDS = {
+  project: /\bprojects?\b/, status: /\bstatus(es)?\b/, priority: /\bpriorit(y|ies)\b/,
+  assignee: /\bassignee?s?\b|\bassigned\b/, reporter: /\breporters?\b/,
+  issuetype: /\btypes?\b|\bissue ?types?\b/, labels: /\blabels?\b|\btags?\b/,
+  duedate: /\bdue\b|\bdeadline\b/, created: /\bcreated?\b/, updated: /\bupdated?\b/,
+  component: /\bcomponents?\b/, sprint: /\bsprints?\b/, summary: /\bsummary\b|\btitle\b/,
+};
+
+function interpretLocal(utterance) {
+  const text = utterance.trim();
+  const lower = text.toLowerCase();
+  const messages = [];
+  let changed = false;
+
+  const say = m => messages.push(m);
+
+  // --- global commands ---
+  if (/^(undo|go back|revert)\b/.test(lower)) {
+    return { special: "undo" };
+  }
+  if (/^(clear|reset|start over|new (query|filter|search))\b/.test(lower)) {
+    return { special: "clear" };
+  }
+  if (/^copy\b/.test(lower)) return { special: "copy" };
+
+  pushHistory();
+
+  // --- mode detection ---
+  const negMode = /^(exclude|hide|without|not )|(^| )except\b/.test(lower) || /\bexclude\b|\bhide\b/.test(lower);
+  const orMerge = /^(include|also|add|or )/.test(lower) || /\bas well\b|\btoo$/.test(lower);
+
+  let matchedSomething = false;
+
+  // --- remove a filter: "remove the status filter" ---
+  let m = lower.match(/\b(remove|drop|delete|forget)\b.*?\b(project|status|priority|assignee|reporter|type|label|labels|due(?: date)?|created|updated|component|sprint|sort(?:ing)?|order)\b.*?(filter|condition|sort(?:ing)?|order)?/);
+  if (m && /\b(filter|condition|sorting|sort|order)\b/.test(lower)) {
+    const word = m[2];
+    if (/sort|order/.test(word) || /\b(sorting|sort|order)\b/.test(m[3] || "")) {
+      if (/sort|order/.test(word)) { state.orderBy = []; say("removed sorting"); matchedSomething = true; changed = true; }
+    }
+    const fieldMap = { project: "project", status: "status", priority: "priority", assignee: "assignee", reporter: "reporter", type: "issuetype", label: "labels", labels: "labels", due: "duedate", "due date": "duedate", created: "created", updated: "updated", component: "component", sprint: "sprint" };
+    const f = fieldMap[word];
+    if (f) {
+      const before = state.conditions.length;
+      state.conditions = state.conditions.filter(c => c.field !== f && !(f === "duedate" && c.op === "raw" && /duedate/.test(c.rawJql || "")));
+      if (state.conditions.length < before) { say("removed " + (FIELD_LABEL[f] || f) + " filter"); matchedSomething = true; changed = true; }
+    }
+    if (matchedSomething) return { messages, changed };
+  }
+
+  // --- sorting ---
+  m = lower.match(/\b(?:sort(?:ed)?|order(?:ed)?)\s+by\s+([a-z ]+?)(?:\s+(desc(?:ending)?|asc(?:ending)?))?\s*$/);
+  if (m) {
+    const fieldMap = { due: "duedate", "due date": "duedate", deadline: "duedate", created: "created", "creation date": "created", updated: "updated", priority: "priority", status: "status", key: "key", assignee: "assignee", project: "project", summary: "summary" };
+    const fname = fieldMap[m[1].trim()] || m[1].trim().replace(/\s+/g, "");
+    const dir = /desc/.test(m[2] || "") ? "DESC" : "ASC";
+    state.orderBy = [{ field: fname, dir }];
+    say("sorted by " + fname + " " + dir);
+    matchedSomething = true; changed = true;
+  }
+  if (/\bnewest first\b/.test(lower)) { state.orderBy = [{ field: "created", dir: "DESC" }]; say("sorted by created DESC"); matchedSomething = true; changed = true; }
+  if (/\boldest first\b/.test(lower)) { state.orderBy = [{ field: "created", dir: "ASC" }]; say("sorted by created ASC"); matchedSomething = true; changed = true; }
+
+  // --- date phrases ---
+  const addCond = c => { state.conditions.push(newCond(c)); say("added " + describeCond(state.conditions[state.conditions.length - 1])); matchedSomething = true; changed = true; };
+
+  if (/\b(past due( date)?|overdue|over due)\b/.test(lower)) {
+    state.conditions = state.conditions.filter(c => !(c.field === "duedate" && c.op === "cmp"));
+    addCond({ field: "duedate", op: "cmp", cmpOp: "<", values: ["now()"] });
+    if (!state.conditions.some(c => c.op === "raw" && /statusCategory/.test(c.rawJql || ""))) {
+      addCond({ field: "statusCategory", op: "raw", rawJql: "statusCategory != Done" });
+    }
+  }
+  if (/\bdue (today|to day)\b/.test(lower)) {
+    addCond({ field: "duedate", op: "cmp", cmpOp: ">=", values: ["startOfDay()"] });
+    addCond({ field: "duedate", op: "cmp", cmpOp: "<=", values: ["endOfDay()"] });
+  }
+  if (/\bdue tomorrow\b/.test(lower)) {
+    addCond({ field: "duedate", op: "cmp", cmpOp: ">=", values: ["startOfDay(1d)"] });
+    addCond({ field: "duedate", op: "cmp", cmpOp: "<=", values: ["endOfDay(1d)"] });
+  }
+  if (/\bdue (this|the) week\b/.test(lower)) {
+    addCond({ field: "duedate", op: "cmp", cmpOp: ">=", values: ["startOfWeek()"] });
+    addCond({ field: "duedate", op: "cmp", cmpOp: "<=", values: ["endOfWeek()"] });
+  }
+  if (/\bdue next week\b/.test(lower)) {
+    addCond({ field: "duedate", op: "cmp", cmpOp: ">=", values: ["startOfWeek(1w)"] });
+    addCond({ field: "duedate", op: "cmp", cmpOp: "<=", values: ["endOfWeek(1w)"] });
+  }
+  if ((m = lower.match(/\bdue (?:in|within) (?:the )?next (\d+) days?\b/))) {
+    addCond({ field: "duedate", op: "cmp", cmpOp: ">=", values: ["now()"] });
+    addCond({ field: "duedate", op: "cmp", cmpOp: "<=", values: [m[1] + "d"] });
+  }
+  if (/\b(no due date|without (a )?due date|missing due date)\b/.test(lower)) {
+    addCond({ field: "duedate", op: "empty" });
+  }
+  if ((m = lower.match(/\b(created|updated) (?:in |during )?(?:the )?last (\d+) (day|week|month)s?\b/))) {
+    const unit = { day: "d", week: "w", month: "M" }[m[3]];
+    addCond({ field: m[1], op: "cmp", cmpOp: ">=", values: ["-" + m[2] + unit] });
+  }
+  if ((m = lower.match(/\b(created|updated) (?:this|the) week\b/))) {
+    addCond({ field: m[1], op: "cmp", cmpOp: ">=", values: ["startOfWeek()"] });
+  }
+  if ((m = lower.match(/\bdue (before|after) (\d{4}-\d{2}-\d{2})\b/))) {
+    addCond({ field: "duedate", op: "cmp", cmpOp: m[1] === "before" ? "<" : ">", values: ['"' + m[2] + '"'] });
+  }
+
+  // --- people ---
+  if (/\bunassigned\b|\bno assignee\b/.test(lower)) addCond({ field: "assignee", op: "empty" });
+  if (/\bassigned to me\b|\bmy (issues|tasks|tickets)\b/.test(lower)) {
+    addCond({ field: "assignee", op: "eq", values: ["currentUser()"] });
+  }
+  if ((m = lower.match(/\bassigned to ([a-zà-ÿ. -]+?)(?:,| and | sorted| order|$)/)) && !/\bme\b/.test(m[1])) {
+    const person = fuzzyValue("assignee", m[1].trim());
+    if (person) {
+      pushToField("assignee", [person], { negated: negMode, orMerge });
+      say((negMode ? "excluding" : "assignee") + " " + person);
+      matchedSomething = true; changed = true;
+    } else { say('no assignee matching "' + m[1].trim() + '" in the data'); }
+  }
+
+  // --- open / done shortcuts ---
+  if (/\b(open|unresolved|not done|still open)\b/.test(lower) && !/\bopened\b/.test(lower)) {
+    if (!state.conditions.some(c => c.op === "raw" && /statusCategory/.test(c.rawJql || ""))) {
+      addCond({ field: "statusCategory", op: "raw", rawJql: "statusCategory != Done" });
+    }
+  }
+  if (/\b(exclude|hide|without|not)\b.*\b(done|closed|resolved|completed)\b/.test(lower) || /^done removed$/.test(lower)) {
+    const doneVals = (data.vocab.status || []).filter(v => DONE_WORDS.test(v));
+    if (doneVals.length) {
+      pushToField("status", doneVals, { negated: true, orMerge: true });
+      say("excluding status " + doneVals.join(", "));
+      matchedSomething = true; changed = true;
+    } else if (!state.conditions.some(c => c.op === "raw" && /statusCategory/.test(c.rawJql || ""))) {
+      addCond({ field: "statusCategory", op: "raw", rawJql: "statusCategory != Done" });
+    }
+  }
+
+  // --- enum value scanning: project, status, priority, type, labels, sprint, component ---
+  const enumFields = ["project", "status", "priority", "issuetype", "labels", "sprint", "component"];
+  for (const field of enumFields) {
+    // explicit "in project X" style requires the field word OR a distinctive vocab hit
+    const vals = scanVocab(field, lower);
+    if (!vals.length) continue;
+    const fieldWordPresent = FIELD_WORDS[field] && FIELD_WORDS[field].test(lower);
+    // avoid matching short/common tokens unless the field word is present
+    const strong = vals.filter(v => fieldWordPresent || v.length >= 3);
+    if (!strong.length) continue;
+    // "exclude done" style handled above for status
+    if (field === "status" && negMode) continue;
+    pushToField(field, strong, { negated: negMode && !orMerge, orMerge });
+    say((negMode ? "excluding " : "") + field + " " + strong.join(", "));
+    matchedSomething = true; changed = true;
+  }
+
+  // --- text search: quoted or "summary contains X" / "about X" ---
+  if ((m = text.match(/"([^"]+)"/)) || (m = lower.match(/\b(?:summary|title|text) (?:contains?|with|has|like) (.+)$/)) || (m = lower.match(/\b(?:about|containing|mentioning) (.+)$/))) {
+    const needle = m[1].trim().replace(/[.?!]$/, "");
+    if (needle) {
+      state.conditions.push(newCond({ field: "summary", op: "contains", values: [needle], negated: negMode }));
+      say('summary ~ "' + needle + '"');
+      matchedSomething = true; changed = true;
+    }
+  }
+
+  if (!matchedSomething) {
+    history.pop(); // nothing changed — drop the snapshot
+    return { messages: ['Could not turn that into a filter. Try naming a project, status, priority, assignee or a due-date phrase — e.g. "only high priority in project SOLA".'], changed: false, unrecognized: true };
+  }
+  return { messages, changed };
+
+  function pushToField(field, values, opts) {
+    const c = upsertEq(field, dedupe(values), opts);
+    return c;
+  }
+  function dedupe(arr) { return [...new Set(arr)]; }
+}
+
+/* ---------------- Claude API interpreter (optional) ---------------- */
+const LLM_SCHEMA = {
+  type: "object",
+  properties: {
+    conditions: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          field: { type: "string" },
+          op: { type: "string", enum: ["eq", "contains", "cmp", "empty", "raw"] },
+          values: { type: "array", items: { type: "string" } },
+          cmpOp: { type: "string", enum: ["<", ">", "<=", ">="] },
+          rawJql: { type: "string" },
+          negated: { type: "boolean" }
+        },
+        required: ["field", "op", "values", "negated"],
+        additionalProperties: false
+      }
+    },
+    orderBy: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { field: { type: "string" }, dir: { type: "string", enum: ["ASC", "DESC"] } },
+        required: ["field", "dir"],
+        additionalProperties: false
+      }
+    },
+    explanation: { type: "string" }
+  },
+  required: ["conditions", "orderBy", "explanation"],
+  additionalProperties: false
+};
+
+const LLM_SYSTEM = `You maintain a Jira JQL filter for the user. Each turn you receive:
+- the schema of their uploaded issue data (fields with sample values),
+- the CURRENT filter as JSON,
+- the user's spoken/typed request.
+Return the COMPLETE NEW filter state (not a diff) as JSON matching the provided schema.
+
+Rules:
+- conditions are joined with AND. Multi-value equality on one field uses one "eq" condition with several values (renders as IN).
+- op "eq": field = value / IN (...). Use negated for != / NOT IN.
+- op "contains": summary ~ "text" (field is usually "summary").
+- op "cmp": date comparison; values[0] is a JQL date expression such as now(), -7d, 4w, startOfDay(), startOfWeek(1w), endOfMonth(), or "2026-07-01". cmpOp required.
+- op "empty": field IS EMPTY (negated → IS NOT EMPTY).
+- op "raw": rawJql holds any other correct JQL clause verbatim (e.g. statusCategory != Done, assignee = currentUser(), status CHANGED AFTER -1w).
+- Use exact values from the vocabulary when the user clearly refers to them (fuzzy match names, keys, statuses).
+- "overdue"/"past due" → duedate < now() AND statusCategory != Done.
+- "assigned to me" → assignee = currentUser().
+- Interpret "include/also X" for a field that already has an eq condition as widening that condition (OR → IN list). A new different field always narrows (AND).
+- "remove the X filter" → drop those conditions. "clear" → empty conditions.
+- Keep every existing condition the user did not touch.
+- explanation: one short sentence describing what changed.`;
+
+async function interpretLlm(utterance) {
+  const key = settings.apiKey;
+  const vocabSummary = {};
+  for (const [f, vs] of Object.entries(data.vocab)) vocabSummary[f] = vs.slice(0, 30);
+  const dateFields = Object.keys(data.fieldCols).filter(f => data.fieldType[f] === "date");
+  const body = {
+    model: "claude-opus-4-8",
+    max_tokens: 1500,
+    output_config: { effort: "low", format: { type: "json_schema", schema: LLM_SCHEMA } },
+    system: [{ type: "text", text: LLM_SYSTEM, cache_control: { type: "ephemeral" } }],
+    messages: [{
+      role: "user",
+      content:
+        "DATA SCHEMA (field: sample values): " + JSON.stringify(vocabSummary) +
+        "\nDATE FIELDS: " + JSON.stringify(dateFields) +
+        "\nCURRENT FILTER: " + JSON.stringify({ conditions: state.conditions, orderBy: state.orderBy }) +
+        "\nCURRENT JQL: " + jqlString() +
+        "\nUSER REQUEST: " + utterance
+    }]
+  };
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true"
+    },
+    body: JSON.stringify(body)
+  });
+  if (!resp.ok) throw new Error("Claude API " + resp.status + ": " + (await resp.text()).slice(0, 200));
+  const msg = await resp.json();
+  if (msg.stop_reason === "refusal") throw new Error("Claude declined this request.");
+  const textBlock = (msg.content || []).find(b => b.type === "text");
+  if (!textBlock) throw new Error("Empty response from Claude.");
+  const out = JSON.parse(textBlock.text);
+  pushHistory();
+  state.conditions = (out.conditions || []).map(c => newCond({
+    field: c.field, op: c.op, values: c.values || [],
+    cmpOp: c.cmpOp, rawJql: c.rawJql, negated: !!c.negated
+  }));
+  state.orderBy = (out.orderBy || []).map(o => ({ field: o.field, dir: o.dir }));
+  return { messages: [out.explanation || "updated"], changed: true };
+}
+
+/* ---------------- speech input ---------------- */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null, listening = false;
+
+function startListening() {
+  if (!SR) {
+    logEntry("app err", "Speech recognition is not supported in this browser — Chrome or Edge have it. You can still type commands.");
+    return;
+  }
+  recog = new SR();
+  recog.lang = settings.lang || navigator.language || "en-US";
+  recog.interimResults = true;
+  recog.continuous = false;
+  listening = true;
+  ui.micBtn.classList.add("live");
+  ui.micState.innerHTML = "<b>listening…</b><br>speak your filter";
+  let finalText = "";
+  recog.onresult = e => {
+    let interim = "";
+    for (const res of e.results) {
+      if (res.isFinal) finalText += res[0].transcript;
+      else interim += res[0].transcript;
+    }
+    ui.sayInput.value = (finalText + " " + interim).trim();
+  };
+  recog.onerror = e => {
+    stopListening();
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      logEntry("app err", "Microphone access was blocked here. If you are viewing the hosted artifact, download the file and open it locally in Chrome for voice input — typing works everywhere.");
+    } else if (e.error !== "aborted" && e.error !== "no-speech") {
+      logEntry("app err", "Speech error: " + e.error);
+    }
+  };
+  recog.onend = () => {
+    stopListening();
+    const text = ui.sayInput.value.trim();
+    if (text) { ui.sayInput.value = ""; handleUtterance(text); }
+  };
+  try { recog.start(); } catch (_) { stopListening(); }
+}
+function stopListening() {
+  listening = false;
+  ui.micBtn.classList.remove("live");
+  ui.micState.innerHTML = "Tap the mic and speak a filter,<br>or type one below.";
+}
+
+/* ---------------- settings ---------------- */
+let settings = { apiKey: "", useLlm: false, lang: "" };
+try { Object.assign(settings, JSON.parse(localStorage.getItem("jqlb.settings") || "{}")); } catch (_) {}
+function saveSettings() { try { localStorage.setItem("jqlb.settings", JSON.stringify(settings)); } catch (_) {} }
+
+/* ---------------- UI ---------------- */
+const ui = {};
+["dropZone","browseBtn","sampleBtn","fileInput","fileTags","fieldStrip","jqlText","chips","copyBtn","undoBtn","clearBtn","copiedMsg","micBtn","micState","sayInput","sayBtn","log","examples","countBox","evalNotice","tableWrap","settingsBtn","settingsDlg","apiKeyInput","useLlm","langSel","settingsClose","settingsSave"]
+  .forEach(id => ui[id] = document.getElementById(id));
+
+function logEntry(kind, text) {
+  const div = document.createElement("div");
+  div.className = "entry " + kind;
+  div.textContent = text;
+  ui.log.appendChild(div);
+  ui.log.scrollTop = ui.log.scrollHeight;
+}
+
+function renderJql() {
+  ui.jqlText.textContent = "";
+  const tokens = stateToTokens();
+  if (!tokens.length) {
+    const s = document.createElement("span");
+    s.className = "empty";
+    s.textContent = "— no filter yet. Say something like “all issues in project SOLA”. —";
+    ui.jqlText.appendChild(s);
+  } else {
+    for (const tok of tokens) {
+      const s = document.createElement("span");
+      s.className = tok.cls; s.textContent = tok.t;
+      ui.jqlText.appendChild(s);
+    }
+  }
+  // chips
+  ui.chips.textContent = "";
+  for (const c of state.conditions) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.appendChild(document.createTextNode(condToText(c)));
+    const x = document.createElement("button");
+    x.className = "x"; x.textContent = "✕"; x.title = "Remove this condition";
+    x.onclick = () => { pushHistory(); state.conditions = state.conditions.filter(k => k.id !== c.id); refresh(); };
+    chip.appendChild(x);
+    ui.chips.appendChild(chip);
+  }
+  for (const o of state.orderBy) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.appendChild(document.createTextNode("ORDER BY " + o.field + " " + o.dir));
+    const x = document.createElement("button");
+    x.className = "x"; x.textContent = "✕";
+    x.onclick = () => { pushHistory(); state.orderBy = state.orderBy.filter(k => k !== o); refresh(); };
+    chip.appendChild(x);
+    ui.chips.appendChild(chip);
+  }
+}
+
+const PREVIEW_COLS = ["key", "summary", "project", "issuetype", "status", "priority", "assignee", "duedate"];
+function renderPreview() {
+  if (!data.rows.length) {
+    ui.countBox.textContent = "";
+    ui.evalNotice.textContent = "";
+    ui.tableWrap.innerHTML = '<div class="placeholder">Upload a Jira CSV (or load the sample queue) to preview which issues your filter matches.</div>';
+    return;
+  }
+  const { rows, skipped } = evaluate();
+  ui.countBox.innerHTML = "<b>" + rows.length + "</b> of " + data.rows.length + " issues match";
+  ui.evalNotice.textContent = skipped.length ? "preview cannot evaluate: " + skipped.join(" · ") : "";
+  const cols = PREVIEW_COLS.filter(f => data.fieldCols[f]);
+  const table = document.createElement("table");
+  const thead = document.createElement("thead");
+  const trh = document.createElement("tr");
+  for (const f of cols) { const th = document.createElement("th"); th.textContent = FIELD_LABEL[f] || f; trh.appendChild(th); }
+  thead.appendChild(trh); table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  const now = Date.now();
+  for (const row of rows.slice(0, 200)) {
+    const tr = document.createElement("tr");
+    for (const f of cols) {
+      const td = document.createElement("td");
+      const vals = rowFieldValues(row, f);
+      if (f === "duedate") {
+        const t = rowFieldDate(row, "duedate");
+        td.textContent = t ? new Date(t).toISOString().slice(0, 10) : "";
+        td.className = "mono";
+        if (t && t < now && statusCategoryOf(row) !== "Done") td.classList.add("due-past");
+      } else {
+        td.textContent = vals.join(", ");
+        if (f === "key") td.className = "mono";
+      }
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  ui.tableWrap.textContent = "";
+  ui.tableWrap.appendChild(table);
+  if (rows.length > 200) {
+    const p = document.createElement("div");
+    p.className = "placeholder";
+    p.textContent = "… showing first 200 of " + rows.length + " matches";
+    ui.tableWrap.appendChild(p);
+  }
+}
+
+function renderFiles() {
+  ui.fileTags.textContent = "";
+  for (const f of data.files) {
+    const tag = document.createElement("span");
+    tag.className = "filetag";
+    tag.innerHTML = "<b>" + escapeHtml(f.name) + "</b> " + f.rowCount + " rows";
+    ui.fileTags.appendChild(tag);
+    ui.fileTags.appendChild(document.createTextNode(" "));
+  }
+  const fields = Object.keys(data.fieldCols);
+  ui.fieldStrip.innerHTML = fields.length
+    ? "detected fields: " + fields.map(f => "<code>" + f + "</code>").join(" · ")
+    : "";
+}
+function escapeHtml(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;"); }
+
+function refresh() { renderJql(); renderPreview(); }
+
+/* ---------------- utterance handling ---------------- */
+async function handleUtterance(text) {
+  logEntry("you", text);
+  let result;
+  if (settings.useLlm && settings.apiKey) {
+    try {
+      result = await interpretLlm(text);
+    } catch (err) {
+      logEntry("app err", "Claude unavailable (" + err.message + ") — using built-in parser.");
+      result = interpretLocal(text);
+    }
+  } else {
+    result = interpretLocal(text);
+  }
+  if (result.special === "undo") {
+    if (undo()) logEntry("app", "undid last change"); else logEntry("app", "nothing to undo");
+    refresh(); return;
+  }
+  if (result.special === "clear") {
+    pushHistory(); state.conditions = []; state.orderBy = [];
+    logEntry("app", "cleared the filter"); refresh(); return;
+  }
+  if (result.special === "copy") { copyJql(); return; }
+  for (const msg of result.messages || []) logEntry(result.unrecognized ? "app err" : "app", msg);
+  refresh();
+}
+
+async function copyJql() {
+  const text = jqlString();
+  if (!text) { logEntry("app", "nothing to copy yet"); return; }
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch (_) {}
+  if (!ok) {
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(ui.jqlText);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      ok = document.execCommand("copy");
+      sel.removeAllRanges();
+    } catch (_) {}
+  }
+  if (ok) {
+    ui.copiedMsg.classList.add("show");
+    setTimeout(() => ui.copiedMsg.classList.remove("show"), 1800);
+  } else {
+    const range = document.createRange();
+    range.selectNodeContents(ui.jqlText);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    logEntry("app err", "Clipboard blocked here — the JQL is selected, press Ctrl/Cmd+C.");
+  }
+}
+
+/* ---------------- sample data ---------------- */
+function loadSample() {
+  const day = 864e5, now = Date.now();
+  const iso = t => new Date(t).toISOString().slice(0, 10);
+  const people = ["Ola Bakke", "Mia de Vries", "Jon Berg", "Sara Holm", ""];
+  const rows = [];
+  const mk = (proj, projName, i, type, status, prio, due, created, label) => rows.push([
+    proj + "-" + (100 + i), sampleSummary(proj, i), proj, projName, type, status, prio,
+    people[i % people.length], iso(due), iso(created), iso(now - (i % 5) * day),
+    /done|closed/i.test(status) ? "Done" : "Unresolved", label
+  ]);
+  const statuses = ["To Do", "In Progress", "In Review", "Blocked", "Done"];
+  const prios = ["Highest", "High", "Medium", "Low"];
+  const types = ["Bug", "Task", "Story"];
+  for (let i = 0; i < 18; i++)
+    mk("SOLA", "Solar Platform", i, types[i % 3], statuses[i % 5], prios[i % 4],
+       now + (i - 8) * 2 * day, now - (30 - i) * day, i % 4 === 0 ? "urgent" : "backend");
+  for (let i = 0; i < 12; i++)
+    mk("VAMOS", "VAM Operations", i, types[(i + 1) % 3], statuses[(i + 2) % 5], prios[(i + 1) % 4],
+       now + (i - 4) * 3 * day, now - (20 - i) * day, i % 3 === 0 ? "ops" : "frontend");
+  for (let i = 0; i < 8; i++)
+    mk("HR", "People Ops", i, "Task", statuses[(i + 4) % 5], prios[(i + 2) % 4],
+       now + (i - 2) * 5 * day, now - (10 - i) * day, "admin");
+  const header = ["Issue key", "Summary", "Project key", "Project name", "Issue Type", "Status", "Priority",
+                  "Assignee", "Due date", "Created", "Updated", "Resolution", "Labels"];
+  const csv = [header, ...rows].map(r => r.map(c => /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c).join(",")).join("\n");
+  ingestFile("sample-queue.csv", csv);
+  renderFiles(); refresh();
+  logEntry("app", "loaded sample queue: 38 issues across SOLA, VAMOS and HR");
+}
+function sampleSummary(proj, i) {
+  const topics = ["Fix login timeout", "Update export mapping", "Review data quality report", "Migrate CSV importer",
+                  "Refactor queue polling", "Add audit trail", "Patch security advisory", "Improve error messages",
+                  "Sync user directory", "Archive stale tickets"];
+  return topics[i % topics.length] + " (" + proj.toLowerCase() + ")";
+}
+
+/* ---------------- wiring ---------------- */
+ui.browseBtn.onclick = () => ui.fileInput.click();
+ui.fileInput.onchange = async () => {
+  for (const f of ui.fileInput.files) {
+    const text = await f.text();
+    ingestFile(f.name, text);
+    logEntry("app", "loaded " + f.name);
+  }
+  ui.fileInput.value = "";
+  renderFiles(); refresh();
+};
+["dragover", "dragenter"].forEach(ev => ui.dropZone.addEventListener(ev, e => { e.preventDefault(); ui.dropZone.classList.add("drag"); }));
+["dragleave", "drop"].forEach(ev => ui.dropZone.addEventListener(ev, e => { e.preventDefault(); ui.dropZone.classList.remove("drag"); }));
+ui.dropZone.addEventListener("drop", async e => {
+  for (const f of e.dataTransfer.files) {
+    if (!/\.(csv|tsv|txt)$/i.test(f.name)) continue;
+    const text = await f.text();
+    ingestFile(f.name, text);
+    logEntry("app", "loaded " + f.name);
+  }
+  renderFiles(); refresh();
+});
+ui.sampleBtn.onclick = loadSample;
+
+ui.copyBtn.onclick = copyJql;
+ui.undoBtn.onclick = () => { if (undo()) { logEntry("app", "undid last change"); refresh(); } };
+ui.clearBtn.onclick = () => { pushHistory(); state.conditions = []; state.orderBy = []; refresh(); };
+ui.jqlText.onclick = () => {
+  const range = document.createRange();
+  range.selectNodeContents(ui.jqlText);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+};
+
+ui.micBtn.onclick = () => { if (listening) { try { recog && recog.stop(); } catch (_) {} } else startListening(); };
+ui.sayBtn.onclick = () => { const t = ui.sayInput.value.trim(); if (t) { ui.sayInput.value = ""; handleUtterance(t); } };
+ui.sayInput.addEventListener("keydown", e => { if (e.key === "Enter") ui.sayBtn.onclick(); });
+ui.examples.addEventListener("click", e => {
+  if (e.target.classList.contains("ex")) handleUtterance(e.target.textContent);
+});
+
+ui.settingsBtn.onclick = () => {
+  ui.apiKeyInput.value = settings.apiKey || "";
+  ui.useLlm.checked = !!settings.useLlm;
+  ui.langSel.value = settings.lang || "";
+  ui.settingsDlg.showModal();
+};
+ui.settingsClose.onclick = () => ui.settingsDlg.close();
+ui.settingsSave.onclick = () => {
+  settings.apiKey = ui.apiKeyInput.value.trim();
+  settings.useLlm = ui.useLlm.checked;
+  settings.lang = ui.langSel.value;
+  saveSettings();
+  ui.settingsDlg.close();
+  logEntry("app", settings.useLlm && settings.apiKey ? "Claude interpretation enabled" : "using built-in parser");
+};
+
+refresh();
+</script>
